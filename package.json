@@ -1,0 +1,33 @@
+{
+  "name": "discord-economy-bot",
+  "version": "1.0.0",
+  "description": "Bot de economía completo para Discord (discord.js v14 + Prisma + PostgreSQL)",
+  "main": "dist/index.js",
+  "private": true,
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "prisma generate && tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/index.js",
+    "deploy": "tsx src/scripts/deploy-commands.ts",
+    "deploy:prod": "node dist/scripts/deploy-commands.js",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:push": "prisma db push",
+    "db:deploy": "prisma migrate deploy",
+    "db:seed": "tsx src/scripts/seed.ts",
+    "db:seed:prod": "node dist/scripts/seed.js"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.0.0",
+    "discord.js": "^14.16.0",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "prisma": "^6.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

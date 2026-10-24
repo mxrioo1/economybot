@@ -1,0 +1,331 @@
+// ─────────────────────────────────────────────────────────────
+//  Esquema de la economía. Todos los importes son BigInt
+//  (int8 en PostgreSQL) para evitar desbordamientos.
+// ─────────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ItemCategory {
+  VEHICULOS
+  HERRAMIENTAS
+  OBJETOS
+  COSMETICOS
+  BOOSTS
+}
+
+enum Rarity {
+  COMUN
+  POCO_COMUN
+  RARO
+  EPICO
+  LEGENDARIO
+}
+
+enum Account {
+  CASH
+  BANK
+}
+
+enum TxType {
+  WELCOME
+  DAILY
+  WORK
+  FISH
+  MINE
+  CRIME
+  ROBBERY
+  BEG
+  TRANSFER
+  DEPOSIT
+  WITHDRAW
+  INTEREST
+  PURCHASE
+  SALE
+  TAX
+  FINE
+  COST
+  UPKEEP
+  EVENT
+  BUSINESS
+  ADMIN
+  BET
+  PAYOUT
+}
+
+enum EventKind {
+  MONEY_MULT
+  XP_MULT
+}
+
+enum GameType {
+  MINES
+  BLACKJACK
+  HILO
+  CRASH
+}
+
+enum GameStatus {
+  ACTIVE
+  WON
+  LOST
+  PUSH
+  CASHED
+  REFUNDED
+}
+
+enum BoostKind {
+  MONEY
+  XP
+  SHIELD
+}
+
+// ── Jugadores ───────────────────────────────────────────────
+model User {
+  id             String    @id // ID de Discord
+  cash           BigInt    @default(0)
+  bank           BigInt    @default(0)
+  level          Int       @default(1)
+  xp             Int       @default(0)
+  jobId          String?
+  dailyStreak    Int       @default(0)
+  lastDailyAt    DateTime?
+  lastInterestAt DateTime  @default(now())
+
+  // Estadísticas
+  workCount     Int    @default(0)
+  fishCount     Int    @default(0)
+  mineCount     Int    @default(0)
+  crimeCount    Int    @default(0)
+  crimeWins     Int    @default(0)
+  robCount      Int    @default(0)
+  robWins       Int    @default(0)
+  timesRobbed   Int    @default(0)
+  totalEarned   BigInt @default(0)
+  totalSpent    BigInt @default(0)
+
+  // Casino
+  gamesPlayed   Int    @default(0)
+  totalWagered  BigInt @default(0)
+  totalPayout   BigInt @default(0)
+  biggestWin    BigInt @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  job           Job?           @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  inventory     Inventory[]
+  transactions  Transaction[]
+  cooldowns     Cooldown[]
+  properties    UserProperty[]
+  businesses    UserBusiness[]
+  boosts        ActiveBoost[]
+  games         Game[]
+
+  @@index([level, xp])
+  @@index([workCount])
+}
+
+// ── Trabajos ────────────────────────────────────────────────
+model Job {
+  id          String @id // slug: "repartidor"
+  name        String
+  emoji       String @default("💼")
+  description String @default("")
+  minLevel    Int    @default(1)
+  minPay      BigInt
+  maxPay      BigInt
+  xpMin       Int    @default(10)
+  xpMax       Int    @default(20)
+
+  users User[]
+}
+
+// ── Objetos ─────────────────────────────────────────────────
+model Item {
+  id          String       @id // slug: "cana-basica"
+  name        String
+  description String       @default("")
+  emoji       String       @default("📦")
+  price       BigInt
+  sellValue   BigInt       @default(0)
+  category    ItemCategory
+  rarity      Rarity       @default(COMUN)
+  minLevel    Int          @default(1)
+  stock       Int? // null = ilimitado
+  shopListed  Boolean      @default(true)
+  sellable    Boolean      @default(true)
+  meta        Json? // efectos (herramienta, vehículo, boost...)
+  createdAt   DateTime     @default(now())
+
+  inventory Inventory[]
+
+  @@index([category, shopListed])
+}
+
+model Inventory {
+  userId   String
+  itemId   String
+  quantity Int    @default(1)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@id([userId, itemId])
+  @@index([itemId])
+}
+
+// ── Libro mayor (auditoría de cada movimiento de dinero) ────
+model Transaction {
+  id             BigInt   @id @default(autoincrement())
+  userId         String
+  account        Account  @default(CASH)
+  type           TxType
+  amount         BigInt // positivo = ingreso, negativo = egreso
+  balanceAfter   BigInt
+  counterpartyId String?
+  note           String?
+  createdAt      DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([type, createdAt])
+}
+
+// ── Cooldowns (uno por usuario y acción) ────────────────────
+model Cooldown {
+  userId    String
+  key       String
+  expiresAt DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, key])
+  @@index([expiresAt])
+}
+
+// ── Propiedades (casas) ─────────────────────────────────────
+model Property {
+  id           String @id
+  name         String
+  emoji        String @default("🏠")
+  description  String @default("")
+  price        BigInt
+  minLevel     Int    @default(1)
+  capacity     Int    @default(0) // huecos extra de inventario
+  workBonusPct Int    @default(0) // % extra en el pago de /work
+  bankBonus    BigInt @default(0) // límite bancario extra
+
+  owners UserProperty[]
+}
+
+model UserProperty {
+  userId      String
+  propertyId  String
+  purchasedAt DateTime @default(now())
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@id([userId, propertyId])
+}
+
+// ── Negocios ────────────────────────────────────────────────
+model Business {
+  id            String @id
+  name          String
+  emoji         String @default("🏪")
+  description   String @default("")
+  price         BigInt
+  minLevel      Int    @default(10)
+  incomePerHour BigInt
+  upkeepPerHour BigInt
+  maxHours      Int    @default(12) // horas máximas acumulables
+
+  owners UserBusiness[]
+}
+
+model UserBusiness {
+  userId          String
+  businessId      String
+  purchasedAt     DateTime @default(now())
+  lastCollectedAt DateTime @default(now())
+  totalProfit     BigInt   @default(0)
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@id([userId, businessId])
+}
+
+// ── Boosts activos (dinero x, XP x, escudo anti-robo) ───────
+model ActiveBoost {
+  userId     String
+  kind       BoostKind
+  multiplier Float     @default(1)
+  expiresAt  DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, kind])
+  @@index([expiresAt])
+}
+
+// ── Eventos globales del servidor (multiplicadores temporales) ──
+model ServerEvent {
+  id         Int       @id @default(autoincrement())
+  name       String
+  kind       EventKind
+  multiplier Float
+  startsAt   DateTime  @default(now())
+  endsAt     DateTime
+  createdBy  String
+
+  @@index([endsAt])
+}
+
+// ── Partidas de casino con estado (buscaminas, blackjack, hi-lo, crash) ──
+model Game {
+  id        String     @id @default(cuid())
+  userId    String
+  type      GameType
+  status    GameStatus @default(ACTIVE)
+  bet       BigInt
+  payout    BigInt     @default(0)
+  state     Json // estado SECRETO del servidor (minas, cartas del crupier…)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([status, updatedAt])
+  @@index([userId, createdAt])
+}
+
+// ── Configuración global (una sola fila: id = "global") ─────
+model Config {
+  id                String  @id @default("global")
+  logChannelId      String?
+  incomeTaxPct      Float   @default(5) // impuesto sobre /work
+  transferTaxPct    Float   @default(2) // impuesto en /pagar
+  purchaseTaxPct    Float   @default(5) // IVA de tienda, casas y negocios
+  sellFeePct        Float   @default(3) // comisión al vender
+  businessTaxPct    Float   @default(10) // impuesto sobre beneficios de negocios
+  rewardMultiplier  Float   @default(1) // multiplicador global de recompensas
+  randomEventChance Float   @default(12) // % de evento aleatorio por actividad
+  logMinAmount      BigInt  @default(1000) // importe mínimo para registrar en el canal
+
+  // Casino
+  gamblingEnabled   Boolean @default(true)
+  gamblingMinBet    BigInt  @default(10)
+  gamblingMaxBet    BigInt  @default(250000)
+  gamblingMaxPayout BigInt  @default(5000000) // tope de premio por partida
+}
